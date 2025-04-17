@@ -1,0 +1,12 @@
+# Node.js
+node_modules/
+npm-debug.log
+yarn.lock
+package-lock.json
+
+# Firebase build output
+functions/lib/
+functions/.env
+
+# Firebase project settings (якщо не хочеш пушити)
+.firebase/
