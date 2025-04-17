@@ -1,9 +1,19 @@
 // functions/src/gptUtils.ts
 import fetch from "node-fetch";
+import {fetch as undiciFetch} from "undici";
 import {defineSecret} from "firebase-functions/params";
 import {onRequest} from "firebase-functions/v2/https";
 
 export const openaiKey = defineSecret("OPENAI_KEY");
+const instructionForImageDescription = `
+  Опиши вміст зображення чітко, об'єктивно та лаконічно.
+  Уникай вигадок, припущень, зайвих прикметників 
+  чи фраз типу “на зображенні видно”.
+  Просто назви, що саме зображено — які об'єкти, сцена, структура 
+  або композиція. Один або два речення.
+  Цей опис буде використано для пошуку та аналізу вмісту 
+  через embedding, тому важлива точність і змістовність.
+  `;
 
 /**
  * Генерує embedding-вектор з тексту, використовуючи OpenAI API.
@@ -93,16 +103,7 @@ export const generateTagString = onRequest(
       return;
     }
 
-    const instruction = `
-  Опиши зображення стисло, як система для творчих людей 
-  (дизайнерів, фотографів, художників). Уникай вигадок, вкажи:
-  1. Тип сцени (інтер’єр, пейзаж, портрет, графіка тощо);
-  2. Основні об'єкти, їх розташування (на передньому плані, в центрі, на фоні);
-  3. Візуальні особливості: кольори, стиль, текстури, композиція, освітлення;
-  4. Можливий творчий напрям (наприклад: мінімалізм, ретро, урбан, сюрреалізм).
-  
-  Без оцінок і емоцій. Опиши 1-2 реченням те, що об'єктивно видно на зображенні.
-  `;
+    const instruction = instructionForImageDescription;
 
     try {
       const response = await sendChatRequest(imageUrl, instruction);
@@ -110,6 +111,92 @@ export const generateTagString = onRequest(
     } catch (error) {
       console.error("generateTagString error:", error);
       res.status(500).json({error: "Failed to generate tag string"});
+    }
+  }
+);
+
+export const generateTagStringStreaming = onRequest(
+  {
+    region: "europe-west3",
+    secrets: [openaiKey],
+  },
+  async (req, res) => {
+    const {imageUrl} = req.body;
+
+    if (!imageUrl || typeof imageUrl !== "string") {
+      res.status(400).json({error: "Missing or invalid imageUrl"});
+      return;
+    }
+
+    const instruction = instructionForImageDescription;
+
+    try {
+      const chatRes = await undiciFetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${openaiKey.value()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4-turbo",
+          stream: true,
+          messages: [
+            {
+              role: "user",
+              content: [
+                {type: "image_url", image_url: {url: imageUrl}},
+                {type: "text", text: instruction},
+              ],
+            },
+          ],
+        }),
+      });
+
+      if (!chatRes.ok || !chatRes.body) {
+        console.error("OpenAI error", await chatRes.text());
+        res.status(500).json({error: "OpenAI request failed"});
+        return;
+      }
+
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Transfer-Encoding", "chunked");
+
+      const reader = chatRes.body?.getReader();
+      const decoder = new TextDecoder("utf-8");
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, {stream: true});
+        const lines = chunk.split("\n").filter((line) => line.trim() !== "");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const payload = line.replace("data: ", "");
+            if (payload === "[DONE]") {
+              res.end();
+              return;
+            }
+
+            try {
+              const parsed = JSON.parse(payload);
+              const content = parsed.choices?.[0]?.delta?.content;
+              if (content) {
+                res.write(content);
+              }
+            } catch (err) {
+              console.warn("Failed to parse chunk:", err);
+            }
+          }
+        }
+      }
+
+      res.end();
+    } catch (error) {
+      console.error("generateTagString streaming error:", error);
+      res.status(500).json({error: "Failed to stream tag generation"});
     }
   }
 );

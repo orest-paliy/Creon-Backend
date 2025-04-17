@@ -175,3 +175,51 @@ export const uploadAvatarImage = onRequest(
     }
   }
 );
+
+export const updateUserEmbedding = onRequest(
+  {
+    region: "europe-west3",
+  },
+  async (req, res) => {
+    try {
+      const {uid, postEmbedding, alpha, direction} = req.body;
+
+      if (!uid || !Array.isArray(postEmbedding) ||
+        typeof alpha !== "number" ||
+        !["toward", "away"].includes(direction)) {
+        res.status(400).json({error: "Invalid input parameters"});
+        return;
+      }
+
+      const db = getDatabase();
+      const userRef = db.ref(`users/${uid}/embedding`);
+      const snapshot = await userRef.get();
+
+      if (!snapshot.exists()) {
+        res.status(404).json({error: "User embedding not found"});
+        return;
+      }
+
+      const userEmbedding: number[] = snapshot.val();
+
+      if (userEmbedding.length !== postEmbedding.length) {
+        res.status(400).json({error:
+        "Embedding vectors must be of the same length"});
+        return;
+      }
+
+      const updatedEmbedding = userEmbedding.map((u, i) => {
+        const p = postEmbedding[i];
+        return direction === "toward" ?
+          (1 - alpha) * u + alpha * p :
+          (1 - alpha) * u - alpha * p;
+      });
+
+      await userRef.set(updatedEmbedding);
+
+      res.status(200).json({success: true});
+    } catch (error) {
+      console.error("Error updating user embedding:", error);
+      res.status(500).json({error: "Internal server error"});
+    }
+  });

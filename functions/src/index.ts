@@ -5,30 +5,21 @@ import {Post} from "./types";
 import {openaiKey, generateEmbeddingFromText} from "./gptUtils";
 import {v4 as uuidv4} from "uuid";
 
-export {generateTagString,
-  aiConfidenceLevel,
-  generateAvatarImageBase64,
-  generateTextEmbedding,
-} from "./gptUtils";
+export * from "./gptUtils";
 
 admin.initializeApp({
   databaseURL: "https://diploma-a3f3c.europe-west1.firebasedatabase.app",
   storageBucket: "diploma-a3f3c.firebasestorage.app",
 });
 
-export {fetchComments,
-  saveComments} from "./comments";
+export * from "./comments";
 
-export {fetchUserProfile,
-  createUserProfile,
-  checkIfUserProfileExists,
-  uploadAvatarImage} from "./userLogic";
+export * from "./userLogic";
 
-export {subscribeToUser,
-  unsubscribeFromUser,
-  isSubscribed,
-  fetchSubscriptions,
-  fetchFollowers} from "./subscriptions";
+export * from "./subscriptions";
+
+export * from "./safeSearchCheck";
+
 
 const db = admin.database();
 const storage = admin.storage();
@@ -347,4 +338,25 @@ export const uploadPost = onRequest(
     }
   }
 );
+
+export const deletePost = onRequest(
+  {
+    region: "europe-west3",
+  },
+  async (req, res) => {
+    const {postId} = req.body;
+
+    if (!postId || typeof postId !== "string") {
+      res.status(400).json({error: "Missing or invalid postId"});
+      return;
+    }
+
+    try {
+      await db.ref(`posts/${postId}`).remove();
+      res.status(200).json({success: true});
+    } catch (err) {
+      console.error("Failed to delete post:", err);
+      res.status(500).json({error: "Failed to delete post"});
+    }
+  });
 
