@@ -4,8 +4,10 @@ import {Request, Response} from "express";
 import {Post} from "./types";
 import {openaiKey, generateEmbeddingFromText} from "./gptUtils";
 import {v4 as uuidv4} from "uuid";
+import {Pinecone} from "@pinecone-database/pinecone";
 
 export * from "./gptUtils";
+import sharp from "sharp";
 
 admin.initializeApp({
   databaseURL: "https://diploma-a3f3c.europe-west1.firebasedatabase.app",
@@ -13,12 +15,10 @@ admin.initializeApp({
 });
 
 export * from "./comments";
-
 export * from "./userLogic";
-
 export * from "./subscriptions";
-
 export * from "./safeSearchCheck";
+export * from "./publicationsFetchLogic";
 
 
 const db = admin.database();
@@ -297,11 +297,21 @@ export const uploadImage = onRequest(
         return;
       }
 
-      const buffer = Buffer.from(imageBase64, "base64");
+      // Декодуємо base64
+      const originalBuffer = Buffer.from(imageBase64, "base64");
+
+      // Масштабуємо зображення до max 1024px
+      const resizedBuffer = await sharp(originalBuffer)
+        .rotate()
+        .resize({width: 1024, height: 1024, fit: "inside"})
+        .jpeg({quality: 80})
+        .toBuffer();
+
       const imageId = uuidv4();
       const file = storage.bucket().file(`posts/${imageId}.jpg`);
 
-      await file.save(buffer, {
+      // Завантажуємо
+      await file.save(resizedBuffer, {
         metadata: {
           contentType: "image/jpeg",
         },
@@ -320,17 +330,36 @@ export const uploadImage = onRequest(
 
 
 export const uploadPost = onRequest(
-  {region: "europe-west3"},
-  async (req: Request, res: Response): Promise<void> => {
+  {
+    region: "europe-west3",
+    secrets: ["PINECONE_API_KEY"],
+  },
+  async (req, res) => {
     try {
-      const post: Post = req.body;
+      const post = req.body;
 
-      if (!post || !post.id) {
-        res.status(400).json({error: "Missing post or post.id"});
+      if (!post || !post.id || !Array.isArray(post.embedding)) {
+        res.status(400).json({error: "Missing post, id or embedding"});
         return;
       }
 
+      // 1. Зберігаємо публікацію в Realtime DB
       await db.ref("posts").child(post.id).set(post);
+
+      // 2. Підключаємо Pinecone з секретом
+      const pinecone = new Pinecone({
+        apiKey: process.env.PINECONE_API_KEY!,
+      });
+
+      const index = pinecone.index("publications");
+
+      await index.upsert([
+        {
+          id: post.id,
+          values: post.embedding,
+        },
+      ]);
+
       res.status(200).json({success: true});
     } catch (error) {
       console.error("uploadPost error:", error);

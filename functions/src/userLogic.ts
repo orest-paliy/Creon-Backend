@@ -212,7 +212,7 @@ export const updateUserEmbedding = onRequest(
         const p = postEmbedding[i];
         return direction === "toward" ?
           (1 - alpha) * u + alpha * p :
-          (1 - alpha) * u - alpha * p;
+          u + alpha * (u - p);
       });
 
       await userRef.set(updatedEmbedding);
