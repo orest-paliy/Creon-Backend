@@ -10,8 +10,8 @@ export * from "./gptUtils";
 import sharp from "sharp";
 
 admin.initializeApp({
-  databaseURL: "https://diploma-a3f3c.europe-west1.firebasedatabase.app",
-  storageBucket: "diploma-a3f3c.firebasestorage.app",
+  databaseURL: "",
+  storageBucket: "",
 });
 
 export * from "./comments";
