@@ -55,7 +55,6 @@
 ### 2. Клонування репозиторію
 
 git clone https://github.com/orest-paliy/Creon-Backend.git
-cd Creon-Backend/functions
 
 
 ### 3. Встановлення залежностей
